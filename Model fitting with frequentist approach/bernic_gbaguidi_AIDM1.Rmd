@@ -1,0 +1,575 @@
+---
+title: "ASSIGNMENT ADVANCED DISEASES MODELING"
+author: "Détagnon Bernic GBAGUIDI"
+date: "2024-03-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+
+###############################################################
+#Assginment for week 1 of the Advanced Modelling methods course
+###############################################################
+
+# Use the MLE method to obtain parameter estimates for b=β/N using an
+# SIR model and the biweekly data for outbreaks of measles in three communities 
+#within Niamey, Niger (Grais et al. 2006) are provided on the course website. To download and plot the data, do, e.g.,
+# Use the data in community A to answer the following questions
+
+
+```{r}
+#### librairy
+
+library(deSolve)
+library(ggplot2)
+library(tidyverse)
+```
+
+###   Let read the data
+
+```{r}
+niamey <- read.csv("http://kingaa.github.io/clim-dis/parest/niamey.csv")
+
+```
+
+### Extract data for community A
+
+```{r}
+data1 <- niamey %>% filter(niamey$community=="A") 
+```
+
+
+### Let plot the data
+
+
+For the whole data dataset
+
+```{r}
+ggplot(niamey,aes(x=biweek,y=measles,col=community))+geom_line()
+```
+
+For only community  A
+
+```{r}
+
+ggplot(data1, aes(x=biweek,y=measles))+
+  geom_point(col='green')
+```
+
+
+
+
+Here  let give some key informations.
+If the two third of the population has been exposed to the disease that mean that two third is recovered from the diseases at the beginning. The initial condition for the number of infected is the firt in the data given. We can deduce the succeptible people with this information.
+
+
+About the parameter gamma we should fixed some value for that , but how to find the best one , i in prior fit the model with two parameters and now use the value found for that.
+```{r}
+N=50000
+R=round(2*N/3)
+I=22
+gamma=1.361542
+```
+
+
+### Let write the model
+
+```{r}
+SIR<-function(t,init,parms){
+  # Size of each compartment and of the population
+  S = init[1]
+  I = init[2]
+  R = init[3]
+  N = S+I+R
+  # parameters
+  beta = parms["beta"]
+  ##variations
+  dS=-beta*S*I/N
+  dI=beta*S*I/N-gamma*I
+  dR=gamma*I
+  res = c(dS,dI,dR)
+  list(res)
+}
+```
+
+
+### Let write a function for simulating the model
+
+
+```{r}
+simulate_SIR=function(parameters){
+  #parameters
+  parms = c(parameters["beta"])
+
+  #initial conditions
+  init <- c(N-I-R,I,R)
+  #simulation
+  temps <- seq(0,15)
+  solveSIR <- ode(y =init, times=temps, func = SIR,
+                    parms = parms)
+  solutionSIR=as.data.frame(solveSIR)
+  names(solutionSIR)=c("time","S","I","R")
+
+  return(solutionSIR)
+}
+```
+
+### Iniatial value for beta
+```{r}
+theta_init =c("beta"=4)
+```
+
+# Let  write the likelihood and the nll functions using a Poisson loglikelihood
+
+
+```{r}
+#  LIKELIHOOD functions
+
+likelihood = function(parameters){
+  simul=simulate_SIR(parameters)
+  simull = dpois(data1$measles, round(simul$I), log=F)
+  return(sum(simull))}
+
+### Negative Log-likelyhood
+
+
+nll = function(parameters){
+  simul=simulate_SIR(parameters)
+  simull =- dpois(data1$measles, round(simul$I), log=T)
+  return(sum(simull))}
+```
+
+
+#  Let fit the parameter b using the optim function
+
+```{r}
+estimated_parameters <- optim(theta_init , fn =nll)$par
+### print values of estimated parameter
+print(estimated_parameters)
+```
+
+As the question is asking us to estrimate the paramater b=beta/N
+
+we have:
+
+```{r}
+ a <- estimated_parameters['beta']/N
+names(a)='b'
+a
+```
+
+
+### Let visualize the prediction of the  model and the real data
+```{r}
+
+new <- simulate_SIR(estimated_parameters)
+ggplot(new,aes(x = time,y=I,col='model prediction'))+
+  geom_point()+
+  geom_line(aes(x =time,y=data1$measles,col='data'))+
+  labs(x = "Time", y = "measles cases") +
+  scale_color_manual(name = "Legend", values = c("model prediction" = "red", "data" = "blue")) +
+  theme_minimal()
+```
+
+
+We can get an idea about the uncertainty and in particular obtain confidence intervals by comparing the likelihoods we get at different values of the parameter.
+
+#  Let  calculate the nll over this range of bs 
+#b=seq(8e-5,1.2e-4,length=100)
+
+Do it for b is equivalent to do it for beta
+
+```{r}
+betaa=seq(8e-5,1.2e-4,length=100)*N
+d=c()
+for (i in betaa){   
+  d=c(d,nll(c('beta'=i)))
+  }
+d
+```
+
+# Let plot the profile of the nlls over the range of bs showing the MLE on the plot
+
+```{r}
+# Find the MLE (Minimum Negative Log-Likelihood Estimate)
+mle_index <- which.min(d)
+mle_lambda <- betaa[mle_index]
+
+# Plot the profile of the negative log-likelihood
+plot(betaa, d, type = "l", xlab = "beta", ylab = "Negative Log-Likelihood", 
+     main = "Profile of Negative Log-Likelihood",
+     ylim = range(c(d, 0))) # Ensuring y-axis starts from 0
+abline(v = mle_lambda, col = "red") # Add a vertical line for MLE
+text(mle_lambda, min(d), "MLE", pos = 3) 
+```
+
+Let adapt it for b
+
+```{r}
+b=seq(8e-5,1.2e-4,length=100)
+mle_index <- which.min(d)
+mle_b <- b[mle_index]
+
+# Plot the profile of the negative log-likelihood
+plot(b, d, type = "l", xlab = "b", ylab = "Negative Log-Likelihood", 
+     main = "Profile of Negative Log-Likelihood",
+     ylim = range(c(d, 0))) # Ensuring y-axis starts from 0
+abline(v = mle_b, col = "red") # Add a vertical line for MLE
+text(mle_b, min(d), "MLE", pos = 3)
+```
+
+
+
+
+# Let try for the Community B
+
+
+
+
+### Extract data for community B
+
+```{r}
+data2 <- niamey %>% filter(niamey$community=="B") 
+```
+
+
+### Let plot the data
+
+
+```{r}
+
+ggplot(data2, aes(x=biweek,y=measles))+
+  geom_point(col='green')
+```
+
+
+
+
+Here  let give some key informations.
+If the two third of the population has been exposed to the disease that mean that two third is recovered from the diseases at the beginning. The initial condition for the number of infected is the firt in the data given. We can deduce the succeptible people with this information.
+
+
+About the parameter gamma we should fixed some value for that , but how to find the best one , i in prior fit the model with two parameters and now use the value found for that.
+```{r}
+N=50000
+R=round(2*N/3)
+IB=1
+gamma=1.361542
+```
+
+
+### Let write the model
+It will be the as what we did in the case of community A
+
+
+### Let write a function for simulating the model
+
+
+```{r}
+simulate_SIRB=function(parameters){
+  #parameters
+  parms = c(parameters["beta"])
+
+  #initial conditions
+  init <- c(N-IB-R,IB,R)
+  #simulation
+  temps <- seq(0,15)
+  solveSIR <- ode(y =init, times=temps, func = SIR,
+                    parms = parms)
+  solutionSIR=as.data.frame(solveSIR)
+  names(solutionSIR)=c("time","S","IB","R")
+
+  return(solutionSIR)
+}
+```
+
+### Iniatial value for beta
+```{r}
+theta_init =c("beta"=4)
+```
+
+# Let  write the likelihood and the nll functions using a Poisson loglikelihood
+
+
+```{r}
+#  LIKELIHOOD functions
+
+likelihoodB = function(parameters){
+  simul=simulate_SIRB(parameters)
+  simull = dpois(data2$measles, round(simul$IB), log=F)
+  return(sum(simull))}
+
+### Negative Log-likelyhood
+
+
+nllB = function(parameters){
+  simul=simulate_SIRB(parameters)
+  simull =- dpois(data2$measles, round(simul$IB), log=T)
+  return(sum(simull))}
+```
+
+
+#  Let fit the parameter b using the optim function
+
+```{r}
+estimated_parametersB <- optim(theta_init , fn =nllB)$par
+### print values of estimated parameter
+print(estimated_parametersB)
+```
+
+As the question is asking us to estrimate the paramater b=beta/N
+
+we have:
+
+```{r}
+ a <- estimated_parametersB['beta']/N
+names(a)='b'
+a
+```
+
+
+### Let visualize the prediction of the  model and the real data
+```{r}
+
+newB <- simulate_SIRB(estimated_parametersB)
+ggplot(newB,aes(x = time,y=IB,col='modelB prediction'))+
+  geom_point()+
+  geom_line(aes(x =time,y=data2$measles,col='data'))+
+  labs(x = "Time", y = "measles cases") +
+  scale_color_manual(name = "Legend", values = c("modelB prediction" = "red", "data" = "blue")) +
+  theme_minimal()
+```
+
+
+We can get an idea about the uncertainty and in particular obtain confidence intervals by comparing the likelihoods we get at different values of the parameter.
+
+#  Let  calculate the nll over this range of bs 
+#b=seq(8e-5,1.2e-4,length=100)
+
+Do it for b is equivalent to do it for beta
+
+```{r}
+betaaB=seq(8e-5,1.2e-4,length=100)*N
+dB=c()
+for (i in betaaB){   
+  dB=c(dB,nllB(c('beta'=i)))
+  }
+dB
+```
+
+# Let plot the profile of the nlls over the range of bs showing the MLE on the plot
+
+```{r}
+# Find the MLE (Minimum Negative Log-Likelihood Estimate)
+mle_index <- which.min(dB)
+mle_lambda <- betaaB[mle_index]
+
+# Plot the profile of the negative log-likelihood
+plot(betaaB, dB, type = "l", xlab = "beta", ylab = "Negative Log-Likelihood", 
+     main = "Profile of Negative Log-Likelihood",
+     ylim = range(c(dB, 0))) # Ensuring y-axis starts from 0
+abline(v = mle_lambda, col = "red") # Add a vertical line for MLE
+text(mle_lambda, min(dB), "MLE", pos = 3) 
+```
+
+Let adapt it for b
+
+```{r}
+b=seq(8e-5,1.2e-4,length=100)
+mle_index <- which.min(dB)
+mle_b <- b[mle_index]
+
+# Plot the profile of the negative log-likelihood
+plot(b, dB, type = "l", xlab = "b", ylab = "Negative Log-Likelihood", 
+     main = "Profile of Negative Log-Likelihood",
+     ylim = range(c(dB, 0))) # Ensuring y-axis starts from 0
+abline(v = mle_b, col = "red") # Add a vertical line for MLE
+text(mle_b, min(dB), "MLE", pos = 3)
+```
+
+
+# For the community C
+
+
+# Let try for the Community C
+
+
+
+
+### Extract data for community C
+
+```{r}
+data3 <- niamey %>% filter(niamey$community=="C") 
+```
+
+```{r}
+idx <- which(is.na(data3$measles))
+data3$measles[idx] <- 3
+```
+
+
+### Let plot the data
+
+
+```{r}
+
+ggplot(data3, aes(x=biweek,y=measles))+
+  geom_point(col='green')
+```
+
+
+
+
+Here  let give some key informations.
+If the two third of the population has been exposed to the disease that mean that two third is recovered from the diseases at the beginning. The initial condition for the number of infected is the firt in the data given. We can deduce the succeptible people with this information.
+
+
+About the parameter gamma we should fixed some value for that , but how to find the best one , i in prior fit the model with two parameters and now use the value found for that.
+```{r}
+N=50000
+R=round(2*N/3)
+IC=2
+gamma=1.361542
+```
+
+
+### Let write the model
+It will be the as what we did in the case of community A
+
+
+### Let write a function for simulating the model
+
+
+```{r}
+simulate_SIRC=function(parameters){
+  #parameters
+  parms = c(parameters["beta"])
+
+  #initial conditions
+  init <- c(N-IC-R,IC,R)
+  #simulation
+  temps <- seq(4,16)
+  solveSIR <- ode(y =init, times=temps, func = SIR,
+                    parms = parms)
+  solutionSIR=as.data.frame(solveSIR)
+  names(solutionSIR)=c("time","S","IC","R")
+
+  return(solutionSIR)
+}
+```
+
+### Iniatial value for beta
+```{r}
+gamma
+theta_init =c("beta"=5)
+```
+
+# Let  write the likelihood and the nll functions using a Poisson loglikelihood
+
+
+```{r}
+#  LIKELIHOOD functions
+
+likelihoodC = function(parameters){
+  simul=simulate_SIRC(parameters)
+  simull = dpois(data3$measles[4:16], round(simul$IC), log=F)
+  return(sum(simull))}
+
+### Negative Log-likelyhood
+
+
+nllC = function(parameters){
+  simul=simulate_SIRC(parameters)
+  simull =- dpois(data3$measles[4:16], round(simul$IC), log=T)
+  return(sum(simull))}
+```
+
+
+#  Let fit the parameter b using the optim function
+
+```{r}
+estimated_parametersC <- optim(theta_init , fn =nllC)$par
+### print values of estimated parameter
+print(estimated_parametersC)
+```
+
+As the question is asking us to estrimate the paramater b=beta/N
+
+we have:
+
+```{r}
+ a <- estimated_parametersC['beta']/N
+names(a)='b'
+a
+```
+
+
+### Let visualize the prediction of the  model and the real data
+```{r}
+
+newC <- simulate_SIRC(estimated_parametersC)
+ggplot(newC,aes(x = seq(4,16),y=IC,col='modelC prediction'))+
+  geom_point()+
+  geom_line(aes(x =seq(4,16),y=data3$measles[4:16],col='data'))+
+  labs(x = "Time", y = "measles cases") +
+  scale_color_manual(name = "Legend", values = c("modelC prediction" = "red", "data" = "blue")) +
+  theme_minimal()
+```
+
+
+We can get an idea about the uncertainty and in particular obtain confidence intervals by comparing the likelihoods we get at different values of the parameter.
+
+#  Let  calculate the nll over this range of bs 
+#b=seq(8e-5,1.2e-4,length=100)
+
+Do it for b is equivalent to do it for beta
+
+```{r}
+betaaC=seq(8e-5,1.2e-4,length=100)*N
+dC=c()
+for (i in betaaC){   
+  dC=c(dC,nllC(c('beta'=i)))
+  }
+dC
+```
+
+# Let plot the profile of the nlls over the range of bs showing the MLE on the plot
+
+```{r}
+# Find the MLE (Minimum Negative Log-Likelihood Estimate)
+mle_index <- which.min(dC)
+mle_lambda <- betaaC[mle_index]
+
+# Plot the profile of the negative log-likelihood
+plot(betaaC, dC, type = "l", xlab = "beta", ylab = "Negative Log-Likelihood", 
+     main = "Profile of Negative Log-Likelihood",
+     ylim = range(c(dC, 0))) # Ensuring y-axis starts from 0
+abline(v = mle_lambda, col = "red") # Add a vertical line for MLE
+text(mle_lambda, min(dC), "MLE", pos = 3) 
+```
+
+Let adapt it for b
+
+```{r}
+b=seq(8e-5,1.2e-4,length=100)
+mle_index <- which.min(dC)
+mle_b <- b[mle_index]
+
+# Plot the profile of the negative log-likelihood
+plot(b, dC, type = "l", xlab = "b", ylab = "Negative Log-Likelihood", 
+     main = "Profile of Negative Log-Likelihood",
+     ylim = range(c(dC, 0))) # Ensuring y-axis starts from 0
+abline(v = mle_b, col = "red") # Add a vertical line for MLE
+text(mle_b, min(dC), "MLE", pos = 3)
+```
+
+
+
+
