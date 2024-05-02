@@ -1,0 +1,1333 @@
+---
+title: "ASSIGNMENT AIDM"
+author: "DETAGNON BERNIC GBAGUIDI"
+date: "2024-03-31"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Section 1: building the climate malaria model
+
+```{r}
+gc()
+rm(list = ls())
+gc()
+
+
+#** group members*
+library(deSolve)
+
+# set directory to where data are saved
+setwd("~/bernic doc/AIDM_Assignment2")
+
+cRD=readRDS("moisture_anomaly_take_home_assignment.rds")
+Temp=readRDS('temperature_take_home_assignment.rds')
+plot(cRD,type='l')
+plot(Temp,type = 'l')
+
+
+####################################### SIE model #########################################
+
+# the malaria model in the mosquito population
+
+#** the SEI model is incomplete. Complete the transmission system by adding adult mosquito mortality to the system*
+SEI_mod <- function(t,y,parms) {
+  
+  
+  
+  
+  muBS<-muBS[pmax(1, ceiling(t))] #
+  muRS<-muRS[pmax(1, ceiling(t))] 
+  muTS<-muTS[pmax(1,ceiling(t))]
+  muEI<-muEI[pmax(1,ceiling(t))]
+  fT<-fT[pmax(1, ceiling(t))] 
+  muIR<-muIR[pmax(1,ceiling(t))]
+  delta<-delta[pmax(1,ceiling(t))]
+  
+  n<-n[pmax(1,ceiling(t))]
+  a<-a[pmax(1,ceiling(t))]
+  m<-m[pmax(1,ceiling(t))]
+  g <- g[pmax(1,ceiling(t))]
+  #tauEA<-tauEA[pmax(1,ceiling(t))]
+  #PEAR<-PEAR[pmax(1,ceiling(t))]
+  #B<-B[pmax(1,ceiling(t))]
+  #L<-L[pmax(1,ceiling(t))]
+  #GP<-GP[pmax(1,ceiling(t))]
+  
+  
+  S=unname(y["S"]) ;E=unname(y["E"]) ;I=unname(y["I"]);Ti=unname(y["Ti"]);R=unname(y["R"]);Csum_Inci=unname(y["Csum_Inci"])
+  P=S+E+I+Ti+R
+  #** complete the set of ODE, by adding mortality to the system.*
+  #** use the variable name muM to save the mortality rates *
+  #*
+  
+  X=(I+qR*R)/(S+E+I+Ti+R)
+  EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+  muSE <- 1-exp(-Pmh*EIR)
+  
+  
+  dS=muBS*P-muSE*S+muRS*R+muTS*Ti -delta*S 
+  dE=muSE*S-muEI*E-delta*E
+  dI =(1-fT)*(muEI*E)-muIR*I-delta*I
+  dTi=fT*muEI*E-muTS*Ti-delta*Ti
+  dR=muIR*I-muRS*R-delta*R
+  Csum_Inci =  muEI*E
+  
+  # create SEI model schematic in lecture slide, with parameters
+  list(c(dS,dE,dI,dTi,dR,Csum_Inci))
+  
+}
+# numday<-seq(1,365)
+# muBS<-rep((57*365)^(-1),numday)
+# muEI<-rep((10)^(-1),numday)
+# muTS<-rep((30)^(-1),numday)
+# muIR<-rep((7)^(-1),numday)
+# fT<-rep((2)^(-1),numday)
+# muRS<-rep((310)^(-1),numday)
+
+
+
+numday<-365
+muBS<-rep((57*365)^(-1),numday)
+muEI<-rep((10)^(-1),numday)
+muTS<-rep((30)^(-1),numday)
+muIR<-rep((7)^(-1),numday)
+fT<-rep((2)^(-1),numday)
+muRS<-rep((310)^(-1),numday)
+#muSE<-rep((10)^(-1),numday)
+delta<-rep((53*365)^(-1),numday)
+
+
+
+Phm <- 0.125
+Pmh <- 0.5
+qR <- 0.32*Phm
+
+g <- -log(-0.000828*Temp*Temp+0.0367*Temp+0.522)
+
+GP <- 1/(0.017*Temp-0.165)
+n <-  (0.000112*(Temp)*(Temp-15.384)*sqrt(35-Temp))^(-1)
+a=0.017*Temp-0.165
+tauEA <- (0.000111*(Temp+2)*(Temp+2-14.7)*sqrt(34-Temp-2))^(-1)
+PEAR=1/(1+exp(-2*(cRD-0.5)))
+PEATW=-0.00924*(Temp+2)^2+0.453*(Temp+2)-4.77
+B <- 50/(exp(GP*g)-1)
+L <- (B*PEAR*PEATW)/tauEA
+m <- L/g
+
+###################################
+
+times=seq(1,365,by=1)
+P=1e5
+states<-c('S'=0.07*P,'E'=0.19*P,'I'=0.32*P,'Ti'=0.22*P,'R'=0.2*P,"Csum_Inci"=0)
+sim_out=ode(y=states, times=times, func = SEI_mod, parms = NULL,method=NULL)
+
+
+
+
+plot(sim_out)
+
+
+incidence <- diff(sim_out[,"Csum_Inci"])
+plot(incidence)
+
+
+
+
+
+#incidence<-data.frame(incidence=incidence)
+#saveRDS(incidence,file = 'incidence.rds')
+
+```
+
+#  Section 2
+
+1.	How many more new cases occur when seasonal rainfall is accounted for? And how many more new cases occur when seasonal temperature is accounted for? To evaluate this:
+a.	Run your climate model using annual average mean moisture anomaly and annual average temperature instead of their seasonal values (note: you will need to calculate the annual averages from the seasonal values). Let’s consider this the “null model”. What is the total number of malaria incidence under the null model?
+
+
+```{r}
+set.seed(123)
+mean_Temp<-mean(Temp)
+mean_Moisture<-mean(cRD)
+
+Temp<-rep(mean_Temp,length(Temp))
+cRD<-rep(mean_Moisture,length(cRD))
+
+###############################
+
+
+
+
+numday<-365
+muBS<-rep((57*365)^(-1),numday)
+muEI<-rep((10)^(-1),numday)
+muTS<-rep((30)^(-1),numday)
+muIR<-rep((7)^(-1),numday)
+fT<-rep((2)^(-1),numday)
+muRS<-rep((310)^(-1),numday)
+#muSE<-rep((10)^(-1),numday)
+delta<-rep((53*365)^(-1),numday)
+
+
+
+Phm <- 0.125
+Pmh <- 0.5
+qR <- 0.32*Phm
+
+g <- -log(-0.000828*Temp*Temp+0.0367*Temp+0.522)
+
+GP <- 1/(0.017*Temp-0.165)
+n <-  (0.000112*(Temp)*(Temp-15.384)*sqrt(35-Temp))^(-1)
+a=0.017*Temp-0.165
+tauEA <- (0.000111*(Temp+2)*(Temp+2-14.7)*sqrt(34-Temp-2))^(-1)
+PEAR=1/(1+exp(-2*(cRD-0.5)))
+PEATW=-0.00924*(Temp+2)^2+0.453*(Temp+2)-4.77
+B <- 50/(exp(GP*g)-1)
+L <- (B*PEAR*PEATW)/tauEA
+m <- L/g
+
+
+
+###############################################
+
+SEI_mod_null <- function(t,y,parms) {
+  
+  
+  
+  
+  muBS<-muBS[pmax(1, ceiling(t))] 
+  
+  muRS<-muRS[pmax(1, ceiling(t))] 
+  muTS<-muTS[pmax(1,ceiling(t))]
+  muEI<-muEI[pmax(1,ceiling(t))]
+  fT<-fT[pmax(1, ceiling(t))] 
+  muIR<-muIR[pmax(1,ceiling(t))]
+  delta<-delta[pmax(1,ceiling(t))]
+  
+  n<-n[pmax(1,ceiling(t))]
+  a<-a[pmax(1,ceiling(t))]
+  m<-m[pmax(1,ceiling(t))]
+  g <- g[pmax(1,ceiling(t))]
+  
+  
+  
+  S=unname(y["S"]) ;E=unname(y["E"]) ;I=unname(y["I"]);Ti=unname(y["Ti"]);R=unname(y["R"]);Csum_Inci=unname(y["Csum_Inci"])
+  P=S+E+I+Ti+R
+  #** complete the set of ODE, by adding mortality to the system.*
+  #** use the variable name muM to save the mortality rates *
+  #*
+  
+  X=(I+qR*R)/(S+E+I+Ti+R)
+  EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+  muSE <- 1-exp(-Pmh*EIR)
+  
+  
+  dS=muBS*P-muSE*S+muRS*R+muTS*Ti -delta*S #bS*(SM+EM+IM)-(bE*fIH*SM)-muM*SM;  #<--- insert mortality
+  dE=muSE*S-muEI*E-delta*E#bE*fIH*SM-bI*EM-muM*EM; #<--- insert mortality
+  dI =(1-fT)*(muEI*E)-muIR*I-delta*I# bI*EM-muM*IM; #<--- insert mortality
+  dTi=fT*muEI*E-muTS*Ti-delta*Ti
+  dR=muIR*I-muRS*R-delta*R
+  Csum_Inci =  muEI*E
+  
+  # create SEI model schematic in lecture slide, with parameters
+  list(c(dS,dE,dI,dTi,dR,Csum_Inci))
+  
+}
+
+
+
+
+
+
+
+times=seq(1,365,by=1)
+P=1e5
+states<-c('S'=0.07*P,'E'=0.19*P,'I'=0.32*P,'Ti'=0.22*P,'R'=0.2*P,"Csum_Inci"=0)
+sim_out=ode(y=states, times=times, func = SEI_mod_null, parms = NULL,method=NULL)
+
+
+
+
+plot(sim_out)
+
+
+incidence1 <- diff(sim_out[,"Csum_Inci"])
+plot(incidence1)
+
+cat('The total number of incidence is',sum(incidence1,na.rm = T))
+```
+
+
+b.	Now create a variant of the null model called the “moisture model”. Do this by replacing the annual average moisture anomaly in the null model with its seasonal values. Run the “moisture model”. How many more malaria incidence occur when you introduce moisture seasonality?
+
+
+```{r}
+cRD=readRDS("moisture_anomaly_take_home_assignment.rds")
+Temp=readRDS('temperature_take_home_assignment.rds')
+mean_Temp<-mean(Temp)
+mean_Moisture<-mean(cRD)
+
+Temp<-rep(mean_Temp,length(Temp))
+#cRD<-rep(mean_Moisture,length(cRD))
+
+###############################
+
+
+
+
+numday<-365
+muBS<-rep((57*365)^(-1),numday)
+muEI<-rep((10)^(-1),numday)
+muTS<-rep((30)^(-1),numday)
+muIR<-rep((7)^(-1),numday)
+fT<-rep((2)^(-1),numday)
+muRS<-rep((310)^(-1),numday)
+#muSE<-rep((10)^(-1),numday)
+delta<-rep((53*365)^(-1),numday)
+
+
+
+Phm <- 0.125
+Pmh <- 0.5
+qR <- 0.32*Phm
+
+g <- -log(-0.000828*Temp*Temp+0.0367*Temp+0.522)
+
+GP <- 1/(0.017*Temp-0.165)
+n <-  (0.000112*(Temp)*(Temp-15.384)*sqrt(35-Temp))^(-1)
+a=0.017*Temp-0.165
+tauEA <- (0.000111*(Temp+2)*(Temp+2-14.7)*sqrt(34-Temp-2))^(-1)
+PEAR=1/(1+exp(-2*(cRD-0.5)))
+PEATW=-0.00924*(Temp+2)^2+0.453*(Temp+2)-4.77
+B <- 50/(exp(GP*g)-1)
+L <- (B*PEAR*PEATW)/tauEA
+m <- L/g
+
+
+
+###############################################
+
+SEI_mod_moisture <- function(t,y,parms) {
+  
+  
+  
+  
+  muBS<-muBS[pmax(1, ceiling(t))] 
+  
+  muRS<-muRS[pmax(1, ceiling(t))] 
+  muTS<-muTS[pmax(1,ceiling(t))]
+  muEI<-muEI[pmax(1,ceiling(t))]
+  fT<-fT[pmax(1, ceiling(t))] 
+  muIR<-muIR[pmax(1,ceiling(t))]
+  delta<-delta[pmax(1,ceiling(t))]
+  
+  n<-n[pmax(1,ceiling(t))]
+  a<-a[pmax(1,ceiling(t))]
+  m<-m[pmax(1,ceiling(t))]
+  g <- g[pmax(1,ceiling(t))]
+  
+  
+  
+  S=unname(y["S"]) ;E=unname(y["E"]) ;I=unname(y["I"]);Ti=unname(y["Ti"]);R=unname(y["R"]);Csum_Inci=unname(y["Csum_Inci"])
+  P=S+E+I+Ti+R
+  #** complete the set of ODE, by adding mortality to the system.*
+  #** use the variable name muM to save the mortality rates *
+  #*
+  
+  X=(I+qR*R)/(S+E+I+Ti+R)
+  EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+  muSE <- 1-exp(-Pmh*EIR)
+  
+  
+  dS=muBS*P-muSE*S+muRS*R+muTS*Ti -delta*S #bS*(SM+EM+IM)-(bE*fIH*SM)-muM*SM;  #<--- insert mortality
+  dE=muSE*S-muEI*E-delta*E#bE*fIH*SM-bI*EM-muM*EM; #<--- insert mortality
+  dI =(1-fT)*(muEI*E)-muIR*I-delta*I# bI*EM-muM*IM; #<--- insert mortality
+  dTi=fT*muEI*E-muTS*Ti-delta*Ti
+  dR=muIR*I-muRS*R-delta*R
+  Csum_Inci =  muEI*E
+  
+  # create SEI model schematic in lecture slide, with parameters
+  list(c(dS,dE,dI,dTi,dR,Csum_Inci))
+  
+}
+
+
+
+
+
+
+
+times=seq(1,365,by=1)
+P=1e5
+states<-c('S'=0.07*P,'E'=0.19*P,'I'=0.32*P,'Ti'=0.22*P,'R'=0.2*P,"Csum_Inci"=0)
+sim_out=ode(y=states, times=times, func = SEI_mod_moisture, parms = NULL,method=NULL)
+
+
+
+
+plot(sim_out)
+
+
+incidence2 <- diff(sim_out[,"Csum_Inci"])
+plot(incidence2)
+
+#sum(incidence2[1:(length(incidence2)-1)])
+cat('The total number of incidence is',sum(incidence2,na.rm = T))
+cat('\n There are',sum(incidence2,na.rm = T)-sum(incidence1,na.rm = T),'more cases')
+```
+
+
+c.	Repeat step b to create a second variant called the “temperature model”. Do this by replacing the annual average temperature values in the null model (i.e., where both moisture anomaly and temperature are set to annual averages) with the seasonal values of temperature. Run the “temperature model”. How many more incidences of malaria occur when you introduce seasonal temperature values? 
+
+```{r}
+#** Note, the temperature data is in Kelvin. Convert to °celsius before using it in for further calculations *
+cRD=readRDS("moisture_anomaly_take_home_assignment.rds")
+Temp=readRDS('temperature_take_home_assignment.rds')
+mean_Temp<-mean(Temp)
+mean_Moisture<-mean(cRD)
+
+#Temp<-rep(mean_Temp,length(Temp))
+cRD<-rep(mean_Moisture,length(cRD))
+
+###############################
+
+
+
+
+numday<-365
+muBS<-rep((57*365)^(-1),numday)
+muEI<-rep((10)^(-1),numday)
+muTS<-rep((30)^(-1),numday)
+muIR<-rep((7)^(-1),numday)
+fT<-rep((2)^(-1),numday)
+muRS<-rep((310)^(-1),numday)
+#muSE<-rep((10)^(-1),numday)
+delta<-rep((53*365)^(-1),numday)
+
+
+
+Phm <- 0.125
+Pmh <- 0.5
+qR <- 0.32*Phm
+
+g <- -log(-0.000828*Temp*Temp+0.0367*Temp+0.522)
+
+GP <- 1/(0.017*Temp-0.165)
+n <-  (0.000112*(Temp)*(Temp-15.384)*sqrt(35-Temp))^(-1)
+a=0.017*Temp-0.165
+tauEA <- (0.000111*(Temp+2)*(Temp+2-14.7)*sqrt(34-Temp-2))^(-1)
+PEAR=1/(1+exp(-2*(cRD-0.5)))
+PEATW=-0.00924*(Temp+2)^2+0.453*(Temp+2)-4.77
+B <- 50/(exp(GP*g)-1)
+L <- (B*PEAR*PEATW)/tauEA
+m <- L/g
+
+
+
+###############################################
+
+SEI_mod_Temp <- function(t,y,parms) {
+  
+  
+  
+  
+  muBS<-muBS[pmax(1, ceiling(t))] 
+  
+  muRS<-muRS[pmax(1, ceiling(t))] 
+  muTS<-muTS[pmax(1,ceiling(t))]
+  muEI<-muEI[pmax(1,ceiling(t))]
+  fT<-fT[pmax(1, ceiling(t))] 
+  muIR<-muIR[pmax(1,ceiling(t))]
+  delta<-delta[pmax(1,ceiling(t))]
+  
+  n<-n[pmax(1,ceiling(t))]
+  a<-a[pmax(1,ceiling(t))]
+  m<-m[pmax(1,ceiling(t))]
+  g <- g[pmax(1,ceiling(t))]
+  
+  
+  
+  S=unname(y["S"]) ;E=unname(y["E"]) ;I=unname(y["I"]);Ti=unname(y["Ti"]);R=unname(y["R"]);Csum_Inci=unname(y["Csum_Inci"])
+  P=S+E+I+Ti+R
+  #** complete the set of ODE, by adding mortality to the system.*
+  #** use the variable name muM to save the mortality rates *
+  #*
+  
+  X=(I+qR*R)/(S+E+I+Ti+R)
+  EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+  muSE <- 1-exp(-Pmh*EIR)
+  
+  
+  dS=muBS*P-muSE*S+muRS*R+muTS*Ti -delta*S #bS*(SM+EM+IM)-(bE*fIH*SM)-muM*SM;  #<--- insert mortality
+  dE=muSE*S-muEI*E-delta*E#bE*fIH*SM-bI*EM-muM*EM; #<--- insert mortality
+  dI =(1-fT)*(muEI*E)-muIR*I-delta*I# bI*EM-muM*IM; #<--- insert mortality
+  dTi=fT*muEI*E-muTS*Ti-delta*Ti
+  dR=muIR*I-muRS*R-delta*R
+  Csum_Inci =  muEI*E
+  
+  # create SEI model schematic in lecture slide, with parameters
+  list(c(dS,dE,dI,dTi,dR,Csum_Inci))
+  
+}
+
+
+
+
+
+
+
+times=seq(1,365,by=1)
+P=1e5
+states<-c('S'=0.07*P,'E'=0.19*P,'I'=0.32*P,'Ti'=0.22*P,'R'=0.2*P,"Csum_Inci"=0)
+sim_out=ode(y=states, times=times, func = SEI_mod_Temp, parms = NULL,method=NULL)
+
+
+
+
+plot(sim_out)
+
+
+incidence3 <- diff(sim_out[,"Csum_Inci"])
+plot(incidence3)
+
+cat('The total number of incidence is',sum(incidence3,na.rm = T))
+cat('\n There are',sum(incidence3,na.rm = T)-sum(incidence1,na.rm = T),'more cases')
+
+```
+
+
+d.	Based on steps a-c, which variable of climate (temperature or moisture anomaly) has the most impact on malaria infections? Reflecting on the variation of climate of the region, explain why this outcome would be expected? [4-5 sentences.]
+
+
+
+Answer:  We can see that when we introduce the seasonality of moisture we have 35662.44 more cases while when introducing seasonality of temparature we have 3369.826 more cases. From this we can conclude that the moisture has more impact on malaria infection than  temperature. We expect this because the range of the temperature in data is  [19.28682 ,24.40763] with average 21.45112, this variation is not too much to . The range of the moisture is [-1.553941 , 1.790843], we can see that we have more variability of the moisture on this region during the year.This will benefit the different stages of mosquitoes and leads to more cases.
+
+
+
+
+
+
+
+
+## 2
+	Here you will use the complete model to help you rank the following climate-regulated parameters based on their individual contribution to the seasonality of malaria transmission: Gonotrophic cycle (temperature), sporogonic cycle (temperature), adult probability of survival(temperature), subadult survivorship due to moisture (moisture anomaly), and subadult survivorship due to temperature
+
+
+
+
+a.	First, simulate malaria transmission using the seasonal moisture anomaly and temperature data to regulate all the parameters above. Let’s consider this the “full model”.  
+
+
+```{r}
+######### It is what's done at the beginning
+```
+
+
+
+
+b.	Now replace the seasonal data in one only of the parameters above in the full model (e.g., gonotrophy) with the annual average temperature value. Let’s call this “model 1”. Then run your “model 1”. What is the level of predicted seasonal malaria incidence from “model 1”, now that seasonal influence of gonotrophy has been omitted? Use the Root Mean Squared Error (RMSE) to calculate how far the malaria incidence of “model 1” is from the level of malaria incidence of the “full model”. 
+
+
+
+
+
+```{r}
+
+#** group members*
+library(deSolve)
+
+# set directory to where data are saved
+setwd("~/bernic doc/AIDM_Assignment2")
+
+# import temperature data using readRDS("name of the file") and store it in the variable Temp.
+#** Note, the temperature data is in Kelvin. Convert to °celsius before using it in for further calculations *
+cRD=readRDS("moisture_anomaly_take_home_assignment.rds")
+Temp=readRDS('temperature_take_home_assignment.rds')
+#incidence<-readRDS('incidence.rds')
+
+
+
+mean_Temp<-mean(Temp)
+mean_Moisture<-mean(cRD)
+
+mean_Tempv<-rep(mean_Temp,length(Temp))
+#cRD<-rep(mean_Moisture,length(cRD))
+
+###############################
+
+
+####################################### SIE model #########################################
+
+# the malaria model in the mosquito population
+
+#** the SEI model is incomplete. Complete the transmission system by adding adult mosquito mortality to the system*
+SEI_mod1 <- function(t,y,parms) {
+  
+  
+  
+  
+  muBS<-muBS[pmax(1, ceiling(t))] # mosquito birth rate
+  #muSE<-muSE[pmax(1, ceiling(t))] # mosquito contact rate
+  muRS<-muRS[pmax(1, ceiling(t))] # mosquito EIP
+  muTS<-muTS[pmax(1,ceiling(t))]
+  muEI<-muEI[pmax(1,ceiling(t))]
+  fT<-fT[pmax(1, ceiling(t))] # fraction of infectious humans
+  muIR<-muIR[pmax(1,ceiling(t))]
+  delta<-delta[pmax(1,ceiling(t))]
+  
+  n<-n[pmax(1,ceiling(t))]
+  a<-a[pmax(1,ceiling(t))]
+  m<-m[pmax(1,ceiling(t))]
+  g <- g[pmax(1,ceiling(t))]
+  #tauEA<-tauEA[pmax(1,ceiling(t))]
+  #PEAR<-PEAR[pmax(1,ceiling(t))]
+  #B<-B[pmax(1,ceiling(t))]
+  #L<-L[pmax(1,ceiling(t))]
+  #GP<-GP[pmax(1,ceiling(t))]
+  
+  
+  S=unname(y["S"]) ;E=unname(y["E"]) ;I=unname(y["I"]);Ti=unname(y["Ti"]);R=unname(y["R"]);Csum_Inci=unname(y["Csum_Inci"])
+  P=S+E+I+Ti+R
+  #** complete the set of ODE, by adding mortality to the system.*
+  #** use the variable name muM to save the mortality rates *
+  #*
+  
+  X=(I+qR*R)/(S+E+I+Ti+R)
+  EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+  muSE <- 1-exp(-Pmh*EIR)
+  
+  
+  dS=muBS*P-muSE*S+muRS*R+muTS*Ti -delta*S #bS*(SM+EM+IM)-(bE*fIH*SM)-muM*SM;  #<--- insert mortality
+  dE=muSE*S-muEI*E-delta*E#bE*fIH*SM-bI*EM-muM*EM; #<--- insert mortality
+  dI =(1-fT)*(muEI*E)-muIR*I-delta*I# bI*EM-muM*IM; #<--- insert mortality
+  dTi=fT*muEI*E-muTS*Ti-delta*Ti
+  dR=muIR*I-muRS*R-delta*R
+  Csum_Inci =  muEI*E
+  
+  # create SEI model schematic in lecture slide, with parameters
+  list(c(dS,dE,dI,dTi,dR,Csum_Inci))
+  
+}
+# numday<-seq(1,365)
+# muBS<-rep((57*365)^(-1),numday)
+# muEI<-rep((10)^(-1),numday)
+# muTS<-rep((30)^(-1),numday)
+# muIR<-rep((7)^(-1),numday)
+# fT<-rep((2)^(-1),numday)
+# muRS<-rep((310)^(-1),numday)
+
+
+
+numday<-365
+muBS<-rep((57*365)^(-1),numday)
+muEI<-rep((10)^(-1),numday)
+muTS<-rep((30)^(-1),numday)
+muIR<-rep((7)^(-1),numday)
+fT<-rep((2)^(-1),numday)
+muRS<-rep((310)^(-1),numday)
+#muSE<-rep((10)^(-1),numday)
+delta<-rep((53*365)^(-1),numday)
+
+
+
+Phm <- 0.125
+Pmh <- 0.5
+qR <- 0.32*Phm
+
+g <- -log(-0.000828*Temp*Temp+0.0367*Temp+0.522)
+
+GP <- 1/(0.017*mean_Tempv-0.165)
+n <-  (0.000112*(Temp)*(Temp-15.384)*sqrt(35-Temp))^(-1)
+a=0.017*mean_Tempv-0.165
+tauEA <- (0.000111*(Temp+2)*(Temp+2-14.7)*sqrt(34-Temp-2))^(-1)
+PEAR=1/(1+exp(-2*(cRD-0.5)))
+PEATW=-0.00924*(Temp+2)^2+0.453*(Temp+2)-4.77
+B <- 50/(exp(GP*g)-1)
+L <- (B*PEAR*PEATW)/tauEA
+m <- L/g
+#X=(I+q*R*R)/(S+E+I+Ti+R)
+#EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+#muSE <- 1-exp(-Pmh*EIR)
+###################################
+
+times=seq(1,365,by=1)
+P=1e5
+states<-c('S'=0.07*P,'E'=0.19*P,'I'=0.32*P,'Ti'=0.22*P,'R'=0.2*P,"Csum_Inci"=0)
+sim_out=ode(y=states, times=times, func = SEI_mod1, parms = NULL,method=NULL)
+
+
+
+
+plot(sim_out)
+
+
+incidence_model1 <- diff(sim_out[,"Csum_Inci"])
+plot(incidence_model1,col='blue',)
+points(incidence,col='green')
+
+rmse_model1 <-  sqrt( mean((incidence-incidence_model1)^2,na.rm = TRUE))
+cat('The RMSE is :',rmse_model1)
+rmse_model1v<-sqrt( (incidence-incidence_model1)^2)
+lines(rmse_model1v,col='red')
+
+
+legend("topleft", legend = c("model1", "full model",'rmse'), col = c("blue",'green', "red"), lty = 1)
+
+```
+
+
+c.	Repeat step b to create model 2, model 3, and model 4 by omitting the seasonal effects of the rest of parameters from the full model, and replacing with annual average values, one parameter after another. Calculate their RMSE.
+
+
+
+
+
+Model 2 sporogony cycle
+```{r}
+
+# set directory to where data are saved
+setwd("~/bernic doc/AIDM_Assignment2")
+
+# import temperature data using readRDS("name of the file") and store it in the variable Temp.
+#** Note, the temperature data is in Kelvin. Convert to °celsius before using it in for further calculations *
+cRD=readRDS("moisture_anomaly_take_home_assignment.rds")
+Temp=readRDS('temperature_take_home_assignment.rds')
+#incidence<-readRDS('incidence.rds')
+
+
+
+mean_Temp<-mean(Temp)
+mean_Moisture<-mean(cRD)
+
+mean_Tempv<-rep(mean_Temp,length(Temp))
+#cRD<-rep(mean_Moisture,length(cRD))
+
+###############################
+
+
+####################################### SIE model #########################################
+
+# the malaria model in the mosquito population
+
+#** the SEI model is incomplete. Complete the transmission system by adding adult mosquito mortality to the system*
+SEI_mod2 <- function(t,y,parms) {
+  
+  
+  
+  
+  muBS<-muBS[pmax(1, ceiling(t))] # mosquito birth rate
+  #muSE<-muSE[pmax(1, ceiling(t))] # mosquito contact rate
+  muRS<-muRS[pmax(1, ceiling(t))] # mosquito EIP
+  muTS<-muTS[pmax(1,ceiling(t))]
+  muEI<-muEI[pmax(1,ceiling(t))]
+  fT<-fT[pmax(1, ceiling(t))] # fraction of infectious humans
+  muIR<-muIR[pmax(1,ceiling(t))]
+  delta<-delta[pmax(1,ceiling(t))]
+  
+  n<-n[pmax(1,ceiling(t))]
+  a<-a[pmax(1,ceiling(t))]
+  m<-m[pmax(1,ceiling(t))]
+  g <- g[pmax(1,ceiling(t))]
+  #tauEA<-tauEA[pmax(1,ceiling(t))]
+  #PEAR<-PEAR[pmax(1,ceiling(t))]
+  #B<-B[pmax(1,ceiling(t))]
+  #L<-L[pmax(1,ceiling(t))]
+  #GP<-GP[pmax(1,ceiling(t))]
+  
+  
+  S=unname(y["S"]) ;E=unname(y["E"]) ;I=unname(y["I"]);Ti=unname(y["Ti"]);R=unname(y["R"]);Csum_Inci=unname(y["Csum_Inci"])
+  P=S+E+I+Ti+R
+  #** complete the set of ODE, by adding mortality to the system.*
+  #** use the variable name muM to save the mortality rates *
+  #*
+  
+  X=(I+qR*R)/(S+E+I+Ti+R)
+  EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+  muSE <- 1-exp(-Pmh*EIR)
+  
+  
+  dS=muBS*P-muSE*S+muRS*R+muTS*Ti -delta*S #bS*(SM+EM+IM)-(bE*fIH*SM)-muM*SM;  #<--- insert mortality
+  dE=muSE*S-muEI*E-delta*E#bE*fIH*SM-bI*EM-muM*EM; #<--- insert mortality
+  dI =(1-fT)*(muEI*E)-muIR*I-delta*I# bI*EM-muM*IM; #<--- insert mortality
+  dTi=fT*muEI*E-muTS*Ti-delta*Ti
+  dR=muIR*I-muRS*R-delta*R
+  Csum_Inci =  muEI*E
+  
+  # create SEI model schematic in lecture slide, with parameters
+  list(c(dS,dE,dI,dTi,dR,Csum_Inci))
+  
+}
+# numday<-seq(1,365)
+# muBS<-rep((57*365)^(-1),numday)
+# muEI<-rep((10)^(-1),numday)
+# muTS<-rep((30)^(-1),numday)
+# muIR<-rep((7)^(-1),numday)
+# fT<-rep((2)^(-1),numday)
+# muRS<-rep((310)^(-1),numday)
+
+
+
+numday<-365
+muBS<-rep((57*365)^(-1),numday)
+muEI<-rep((10)^(-1),numday)
+muTS<-rep((30)^(-1),numday)
+muIR<-rep((7)^(-1),numday)
+fT<-rep((2)^(-1),numday)
+muRS<-rep((310)^(-1),numday)
+#muSE<-rep((10)^(-1),numday)
+delta<-rep((53*365)^(-1),numday)
+
+
+
+Phm <- 0.125
+Pmh <- 0.5
+qR <- 0.32*Phm
+
+g <- -log(-0.000828*Temp*Temp+0.0367*Temp+0.522)
+
+GP <- 1/(0.017*Temp-0.165)
+n <-  (0.000112*(mean_Tempv)*(mean_Tempv-15.384)*sqrt(35-mean_Tempv))^(-1)
+a=0.017*Temp-0.165
+tauEA <- (0.000111*(Temp+2)*(Temp+2-14.7)*sqrt(34-Temp-2))^(-1)
+PEAR=1/(1+exp(-2*(cRD-0.5)))
+PEATW=-0.00924*(Temp+2)^2+0.453*(Temp+2)-4.77
+B <- 50/(exp(GP*g)-1)
+L <- (B*PEAR*PEATW)/tauEA
+m <- L/g
+#X=(I+q*R*R)/(S+E+I+Ti+R)
+#EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+#muSE <- 1-exp(-Pmh*EIR)
+###################################
+
+times=seq(1,365,by=1)
+P=1e5
+states<-c('S'=0.07*P,'E'=0.19*P,'I'=0.32*P,'Ti'=0.22*P,'R'=0.2*P,"Csum_Inci"=0)
+sim_out=ode(y=states, times=times, func = SEI_mod2, parms = NULL,method=NULL)
+
+
+
+
+plot(sim_out)
+
+
+incidence_model2 <- diff(sim_out[,"Csum_Inci"])
+plot(incidence,col='green')
+points(incidence_model2,col='blue')
+
+rmse_model2 <-  sqrt( mean((incidence-incidence_model2)^2,na.rm = TRUE))
+#print(rmse_model2)
+cat('The RMSE is :',rmse_model2)
+rmse_model2v<-sqrt( (incidence-incidence_model2)^2)
+lines(rmse_model2v,col='red')
+
+
+legend("topleft", legend = c("model2", "full model",'rmse'), col = c("blue",'green', "red"), lty = 1)
+
+
+
+```
+
+
+
+
+
+
+##### Model 3 adult probability of survival(temperature)
+
+
+
+```{r}
+
+
+#** group members*
+library(deSolve)
+
+# set directory to where data are saved
+setwd("~/bernic doc/AIDM_Assignment2")
+
+# import temperature data using readRDS("name of the file") and store it in the variable Temp.
+#** Note, the temperature data is in Kelvin. Convert to °celsius before using it in for further calculations *
+cRD=readRDS("moisture_anomaly_take_home_assignment.rds")
+Temp=readRDS('temperature_take_home_assignment.rds')
+#incidence<-readRDS('incidence.rds')
+
+
+
+mean_Temp<-mean(Temp)
+mean_Moisture<-mean(cRD)
+
+mean_Tempv<-rep(mean_Temp,length(Temp))
+#cRD<-rep(mean_Moisture,length(cRD))
+
+###############################
+
+
+####################################### SIE model #########################################
+
+# the malaria model in the mosquito population
+
+#** the SEI model is incomplete. Complete the transmission system by adding adult mosquito mortality to the system*
+SEI_mod3 <- function(t,y,parms) {
+  
+  
+  
+  
+  muBS<-muBS[pmax(1, ceiling(t))] # mosquito birth rate
+  #muSE<-muSE[pmax(1, ceiling(t))] # mosquito contact rate
+  muRS<-muRS[pmax(1, ceiling(t))] # mosquito EIP
+  muTS<-muTS[pmax(1,ceiling(t))]
+  muEI<-muEI[pmax(1,ceiling(t))]
+  fT<-fT[pmax(1, ceiling(t))] # fraction of infectious humans
+  muIR<-muIR[pmax(1,ceiling(t))]
+  delta<-delta[pmax(1,ceiling(t))]
+  
+  n<-n[pmax(1,ceiling(t))]
+  a<-a[pmax(1,ceiling(t))]
+  m<-m[pmax(1,ceiling(t))]
+  g <- g[pmax(1,ceiling(t))]
+  #tauEA<-tauEA[pmax(1,ceiling(t))]
+  #PEAR<-PEAR[pmax(1,ceiling(t))]
+  #B<-B[pmax(1,ceiling(t))]
+  #L<-L[pmax(1,ceiling(t))]
+  #GP<-GP[pmax(1,ceiling(t))]
+  
+  
+  S=unname(y["S"]) ;E=unname(y["E"]) ;I=unname(y["I"]);Ti=unname(y["Ti"]);R=unname(y["R"]);Csum_Inci=unname(y["Csum_Inci"])
+  P=S+E+I+Ti+R
+  #** complete the set of ODE, by adding mortality to the system.*
+  #** use the variable name muM to save the mortality rates *
+  #*
+  
+  X=(I+qR*R)/(S+E+I+Ti+R)
+  EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+  muSE <- 1-exp(-Pmh*EIR)
+  
+  
+  dS=muBS*P-muSE*S+muRS*R+muTS*Ti -delta*S #bS*(SM+EM+IM)-(bE*fIH*SM)-muM*SM;  #<--- insert mortality
+  dE=muSE*S-muEI*E-delta*E#bE*fIH*SM-bI*EM-muM*EM; #<--- insert mortality
+  dI =(1-fT)*(muEI*E)-muIR*I-delta*I# bI*EM-muM*IM; #<--- insert mortality
+  dTi=fT*muEI*E-muTS*Ti-delta*Ti
+  dR=muIR*I-muRS*R-delta*R
+  Csum_Inci =  muEI*E
+  
+  # create SEI model schematic in lecture slide, with parameters
+  list(c(dS,dE,dI,dTi,dR,Csum_Inci))
+  
+}
+# numday<-seq(1,365)
+# muBS<-rep((57*365)^(-1),numday)
+# muEI<-rep((10)^(-1),numday)
+# muTS<-rep((30)^(-1),numday)
+# muIR<-rep((7)^(-1),numday)
+# fT<-rep((2)^(-1),numday)
+# muRS<-rep((310)^(-1),numday)
+
+
+
+numday<-365
+muBS<-rep((57*365)^(-1),numday)
+muEI<-rep((10)^(-1),numday)
+muTS<-rep((30)^(-1),numday)
+muIR<-rep((7)^(-1),numday)
+fT<-rep((2)^(-1),numday)
+muRS<-rep((310)^(-1),numday)
+#muSE<-rep((10)^(-1),numday)
+delta<-rep((53*365)^(-1),numday)
+
+
+
+Phm <- 0.125
+Pmh <- 0.5
+qR <- 0.32*Phm
+
+g <- -log(-0.000828*mean_Tempv*mean_Tempv+0.0367*mean_Tempv+0.522)
+
+GP <- 1/(0.017*Temp-0.165)
+n <-  (0.000112*(Temp)*(Temp-15.384)*sqrt(35-Temp))^(-1)
+a=0.017*Temp-0.165
+tauEA <- (0.000111*(Temp+2)*(Temp+2-14.7)*sqrt(34-Temp-2))^(-1)
+PEAR=1/(1+exp(-2*(cRD-0.5)))
+PEATW=-0.00924*(Temp+2)^2+0.453*(Temp+2)-4.77
+B <- 50/(exp(GP*g)-1)
+L <- (B*PEAR*PEATW)/tauEA
+m <- L/g
+#X=(I+q*R*R)/(S+E+I+Ti+R)
+#EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+#muSE <- 1-exp(-Pmh*EIR)
+###################################
+
+times=seq(1,365,by=1)
+P=1e5
+states<-c('S'=0.07*P,'E'=0.19*P,'I'=0.32*P,'Ti'=0.22*P,'R'=0.2*P,"Csum_Inci"=0)
+sim_out=ode(y=states, times=times, func = SEI_mod3, parms = NULL,method=NULL)
+
+
+
+
+plot(sim_out)
+
+
+incidence_model3 <- diff(sim_out[,"Csum_Inci"])
+plot(incidence,col='green')
+points(incidence_model3,col='blue')
+
+rmse_model3 <-  sqrt( mean((incidence-incidence_model3)^2,na.rm = TRUE))
+#print(rmse_model3)
+cat('The RMSE is :',rmse_model3)
+rmse_model3v<-sqrt( (incidence-incidence_model3)^2)
+lines(rmse_model3v,col='red')
+
+
+legend("topleft", legend = c("model3", "full model",'rmse'), col = c("blue",'green', "red"), lty = 1)
+
+
+
+
+```
+
+
+
+
+
+#########  subadult survivorship due to moisture (moisture anomaly)
+
+
+```{r}
+
+#** group members*
+library(deSolve)
+
+# set directory to where data are saved
+setwd("~/bernic doc/AIDM_Assignment2")
+
+# import temperature data using readRDS("name of the file") and store it in the variable Temp.
+#** Note, the temperature data is in Kelvin. Convert to °celsius before using it in for further calculations *
+cRD=readRDS("moisture_anomaly_take_home_assignment.rds")
+Temp=readRDS('temperature_take_home_assignment.rds')
+#incidence<-readRDS('incidence.rds')
+
+
+
+mean_Temp<-mean(Temp)
+mean_Moisture<-mean(cRD)
+
+mean_Tempv<-rep(mean_Temp,length(Temp))
+mean_cRD<-rep(mean_Moisture,length(cRD))
+
+###############################
+
+
+####################################### SIE model #########################################
+
+# the malaria model in the mosquito population
+
+#** the SEI model is incomplete. Complete the transmission system by adding adult mosquito mortality to the system*
+SEI_mod4 <- function(t,y,parms) {
+  
+  
+  
+  
+  muBS<-muBS[pmax(1, ceiling(t))] # mosquito birth rate
+  #muSE<-muSE[pmax(1, ceiling(t))] # mosquito contact rate
+  muRS<-muRS[pmax(1, ceiling(t))] # mosquito EIP
+  muTS<-muTS[pmax(1,ceiling(t))]
+  muEI<-muEI[pmax(1,ceiling(t))]
+  fT<-fT[pmax(1, ceiling(t))] # fraction of infectious humans
+  muIR<-muIR[pmax(1,ceiling(t))]
+  delta<-delta[pmax(1,ceiling(t))]
+  
+  n<-n[pmax(1,ceiling(t))]
+  a<-a[pmax(1,ceiling(t))]
+  m<-m[pmax(1,ceiling(t))]
+  g <- g[pmax(1,ceiling(t))]
+  #tauEA<-tauEA[pmax(1,ceiling(t))]
+  #PEAR<-PEAR[pmax(1,ceiling(t))]
+  #B<-B[pmax(1,ceiling(t))]
+  #L<-L[pmax(1,ceiling(t))]
+  #GP<-GP[pmax(1,ceiling(t))]
+  
+  
+  S=unname(y["S"]) ;E=unname(y["E"]) ;I=unname(y["I"]);Ti=unname(y["Ti"]);R=unname(y["R"]);Csum_Inci=unname(y["Csum_Inci"])
+  P=S+E+I+Ti+R
+  #** complete the set of ODE, by adding mortality to the system.*
+  #** use the variable name muM to save the mortality rates *
+  #*
+  
+  X=(I+qR*R)/(S+E+I+Ti+R)
+  EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+  muSE <- 1-exp(-Pmh*EIR)
+  
+  
+  dS=muBS*P-muSE*S+muRS*R+muTS*Ti -delta*S #bS*(SM+EM+IM)-(bE*fIH*SM)-muM*SM;  #<--- insert mortality
+  dE=muSE*S-muEI*E-delta*E#bE*fIH*SM-bI*EM-muM*EM; #<--- insert mortality
+  dI =(1-fT)*(muEI*E)-muIR*I-delta*I# bI*EM-muM*IM; #<--- insert mortality
+  dTi=fT*muEI*E-muTS*Ti-delta*Ti
+  dR=muIR*I-muRS*R-delta*R
+  Csum_Inci =  muEI*E
+  
+  # create SEI model schematic in lecture slide, with parameters
+  list(c(dS,dE,dI,dTi,dR,Csum_Inci))
+  
+}
+# numday<-seq(1,365)
+# muBS<-rep((57*365)^(-1),numday)
+# muEI<-rep((10)^(-1),numday)
+# muTS<-rep((30)^(-1),numday)
+# muIR<-rep((7)^(-1),numday)
+# fT<-rep((2)^(-1),numday)
+# muRS<-rep((310)^(-1),numday)
+
+
+
+numday<-365
+muBS<-rep((57*365)^(-1),numday)
+muEI<-rep((10)^(-1),numday)
+muTS<-rep((30)^(-1),numday)
+muIR<-rep((7)^(-1),numday)
+fT<-rep((2)^(-1),numday)
+muRS<-rep((310)^(-1),numday)
+#muSE<-rep((10)^(-1),numday)
+delta<-rep((53*365)^(-1),numday)
+
+
+
+Phm <- 0.125
+Pmh <- 0.5
+qR <- 0.32*Phm
+
+g <- -log(-0.000828*mean_Tempv*mean_Tempv+0.0367*mean_Tempv+0.522)
+
+GP <- 1/(0.017*Temp-0.165)
+n <-  (0.000112*(Temp)*(Temp-15.384)*sqrt(35-Temp))^(-1)
+a=0.017*Temp-0.165
+tauEA <- (0.000111*(Temp+2)*(Temp+2-14.7)*sqrt(34-Temp-2))^(-1)
+PEAR=1/(1+exp(-2*(mean_cRD-0.5)))
+PEATW=-0.00924*(Temp+2)^2+0.453*(Temp+2)-4.77
+B <- 50/(exp(GP*g)-1)
+L <- (B*PEAR*PEATW)/tauEA
+m <- L/g
+#X=(I+q*R*R)/(S+E+I+Ti+R)
+#EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+#muSE <- 1-exp(-Pmh*EIR)
+###################################
+
+times=seq(1,365,by=1)
+P=1e5
+states<-c('S'=0.07*P,'E'=0.19*P,'I'=0.32*P,'Ti'=0.22*P,'R'=0.2*P,"Csum_Inci"=0)
+sim_out=ode(y=states, times=times, func = SEI_mod4, parms = NULL,method=NULL)
+
+
+
+
+plot(sim_out)
+
+
+incidence_model4 <- diff(sim_out[,"Csum_Inci"])
+plot(incidence,col='green')
+points(incidence_model4,col='blue')
+
+rmse_model4 <-  sqrt( mean((incidence-incidence_model4)^2,na.rm = TRUE))
+#print(rmse_model3)
+cat('The RMSE is :',rmse_model4)
+rmse_model4v<-sqrt( (incidence-incidence_model4)^2)
+lines(rmse_model4v,col='red')
+
+
+legend("topleft", legend = c("model4", "full model",'rmse'), col = c("blue",'green', "red"), lty = 1)
+
+
+
+
+
+```
+
+
+
+
+#######   subadult survivorship due to temperature
+
+
+
+
+
+```{r}
+
+# set directory to where data are saved
+setwd("~/bernic doc/AIDM_Assignment2")
+
+# import temperature data using readRDS("name of the file") and store it in the variable Temp.
+#** Note, the temperature data is in Kelvin. Convert to °celsius before using it in for further calculations *
+cRD=readRDS("moisture_anomaly_take_home_assignment.rds")
+Temp=readRDS('temperature_take_home_assignment.rds')
+#incidence<-readRDS('incidence.rds')
+
+
+
+mean_Temp<-mean(Temp)
+mean_Moisture<-mean(cRD)
+
+mean_Tempv<-rep(mean_Temp,length(Temp))
+mean_cRD<-rep(mean_Moisture,length(cRD))
+
+###############################
+
+
+####################################### SIE model #########################################
+
+# the malaria model in the mosquito population
+
+#** the SEI model is incomplete. Complete the transmission system by adding adult mosquito mortality to the system*
+SEI_mod5 <- function(t,y,parms) {
+  
+  
+  
+  
+  muBS<-muBS[pmax(1, ceiling(t))] # mosquito birth rate
+  #muSE<-muSE[pmax(1, ceiling(t))] # mosquito contact rate
+  muRS<-muRS[pmax(1, ceiling(t))] # mosquito EIP
+  muTS<-muTS[pmax(1,ceiling(t))]
+  muEI<-muEI[pmax(1,ceiling(t))]
+  fT<-fT[pmax(1, ceiling(t))] # fraction of infectious humans
+  muIR<-muIR[pmax(1,ceiling(t))]
+  delta<-delta[pmax(1,ceiling(t))]
+  
+  n<-n[pmax(1,ceiling(t))]
+  a<-a[pmax(1,ceiling(t))]
+  m<-m[pmax(1,ceiling(t))]
+  g <- g[pmax(1,ceiling(t))]
+  #tauEA<-tauEA[pmax(1,ceiling(t))]
+  #PEAR<-PEAR[pmax(1,ceiling(t))]
+  #B<-B[pmax(1,ceiling(t))]
+  #L<-L[pmax(1,ceiling(t))]
+  #GP<-GP[pmax(1,ceiling(t))]
+  
+  
+  S=unname(y["S"]) ;E=unname(y["E"]) ;I=unname(y["I"]);Ti=unname(y["Ti"]);R=unname(y["R"]);Csum_Inci=unname(y["Csum_Inci"])
+  P=S+E+I+Ti+R
+  #** complete the set of ODE, by adding mortality to the system.*
+  #** use the variable name muM to save the mortality rates *
+  #*
+  
+  X=(I+qR*R)/(S+E+I+Ti+R)
+  EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+  muSE <- 1-exp(-Pmh*EIR)
+  
+  
+  dS=muBS*P-muSE*S+muRS*R+muTS*Ti -delta*S #bS*(SM+EM+IM)-(bE*fIH*SM)-muM*SM;  #<--- insert mortality
+  dE=muSE*S-muEI*E-delta*E#bE*fIH*SM-bI*EM-muM*EM; #<--- insert mortality
+  dI =(1-fT)*(muEI*E)-muIR*I-delta*I# bI*EM-muM*IM; #<--- insert mortality
+  dTi=fT*muEI*E-muTS*Ti-delta*Ti
+  dR=muIR*I-muRS*R-delta*R
+  Csum_Inci =  muEI*E
+  
+  # create SEI model schematic in lecture slide, with parameters
+  list(c(dS,dE,dI,dTi,dR,Csum_Inci))
+  
+}
+# numday<-seq(1,365)
+# muBS<-rep((57*365)^(-1),numday)
+# muEI<-rep((10)^(-1),numday)
+# muTS<-rep((30)^(-1),numday)
+# muIR<-rep((7)^(-1),numday)
+# fT<-rep((2)^(-1),numday)
+# muRS<-rep((310)^(-1),numday)
+
+
+
+numday<-365
+muBS<-rep((57*365)^(-1),numday)
+muEI<-rep((10)^(-1),numday)
+muTS<-rep((30)^(-1),numday)
+muIR<-rep((7)^(-1),numday)
+fT<-rep((2)^(-1),numday)
+muRS<-rep((310)^(-1),numday)
+#muSE<-rep((10)^(-1),numday)
+delta<-rep((53*365)^(-1),numday)
+
+
+
+Phm <- 0.125
+Pmh <- 0.5
+qR <- 0.32*Phm
+
+g <- -log(-0.000828*Temp*Temp+0.0367*Temp+0.522)
+
+GP <- 1/(0.017*Temp-0.165)
+n <-  (0.000112*(Temp)*(Temp-15.384)*sqrt(35-Temp))^(-1)
+a=0.017*Temp-0.165
+tauEA <- (0.000111*(Temp+2)*(Temp+2-14.7)*sqrt(34-Temp-2))^(-1)
+PEAR=1/(1+exp(-2*(cRD-0.5)))
+PEATW=-0.00924*(mean_Tempv+2)^2+0.453*(mean_Tempv+2)-4.77
+B <- 50/(exp(GP*g)-1)
+L <- (B*PEAR*PEATW)/tauEA
+m <- L/g
+#X=(I+q*R*R)/(S+E+I+Ti+R)
+#EIR <- (m*a*a*Phm*X*exp(-g*n))/(g+a*Phm*X)
+#muSE <- 1-exp(-Pmh*EIR)
+###################################
+
+times=seq(1,365,by=1)
+P=1e5
+states<-c('S'=0.07*P,'E'=0.19*P,'I'=0.32*P,'Ti'=0.22*P,'R'=0.2*P,"Csum_Inci"=0)
+sim_out=ode(y=states, times=times, func = SEI_mod5, parms = NULL,method=NULL)
+
+
+
+
+plot(sim_out)
+
+
+incidence_model5 <- diff(sim_out[,"Csum_Inci"])
+plot(incidence,col='green')
+points(incidence_model5,col='blue')
+
+rmse_model5 <-  sqrt( mean((incidence-incidence_model5)^2,na.rm = TRUE))
+#print(rmse_model3)
+cat('The RMSE is :',rmse_model5)
+rmse_model5v<-sqrt( (incidence-incidence_model5)^2)
+lines(rmse_model5v,col='red')
+
+
+legend("topleft", legend = c("model5", "full model",'rmse'), col = c("blue",'green', "red"), lty = 1)
+
+
+
+
+
+
+```
+
+
+
+############# d.	Rank your models from lowest RMSE to highest RMSE
+
+
+
+
+```{r}
+RMSE<-c(model1=rmse_model1,model2=rmse_model2,model3=rmse_model3,model4=rmse_model4,model5=rmse_model5)
+sort(RMSE)
+```
+
+
+e.	Which parameter has the most impact on seasonal malaria incidence? Based on your understanding of climate variation and malaria ecology, explain why the outcome is expected? .
+
+
+Answers:   The model 4 has more impact because it RMSE is big .
+
+The model 4  include the subadult survivorship due to moisture , and we know that subadult are the set of eggs ,pupae and lavae that live in water . The variation of moiture has therefore a big impact of the developement  of those subadult as they depend on it .
+
+
+
+
+
+
+3.	Based on the above exercises, what can you conclude about the importance of climate conditions on annual malaria incidence and the seasonality of malaria transmission?
+
+
+Those two exercice help to have evidence of the impact of the climat on the malaria incidence. Mainly we see that in absence of seasonality the cases predicted  by the model is low but after taking it into consideration we remark that it grows. We can conclude that it is very important during modeling or any mechanism of fighting against  malaria to include the impact of the climate on malaria dynamics.
+
+This can help to have effective and efficient intervention and leads to elimination of malaria.
